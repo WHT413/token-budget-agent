@@ -1,8 +1,8 @@
-"""Node: compresses conversation/context history to reclaim token budget."""
+"""Compression node stub."""
 
-from src.agent.state import AgentState
+from ..state import AgentState
 
 
 def compressor(state: AgentState) -> AgentState:
-    """Placeholder node. Will summarize/compress `state` history."""
+    """Placeholder node function for prompt/context compression."""
     return state

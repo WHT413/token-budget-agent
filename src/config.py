@@ -1,15 +1,50 @@
-"""Application configuration loaded from environment variables."""
+"""Application configuration loaded from environment and validated by Pydantic."""
 
-import os
+from functools import lru_cache
 
-from dotenv import load_dotenv
+from pydantic import Field, HttpUrl, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
 
-MODEL_MAP = {
-    "default": os.getenv("DEFAULT_MODEL", "claude-haiku-4-5-20251001"),
-    "fallback": os.getenv("FALLBACK_MODEL", "claude-sonnet-4-6"),
-}
+class Settings(BaseSettings):
+    """Validated runtime settings.
 
-BUDGET_LIMIT = int(os.getenv("TOKEN_BUDGET_LIMIT", "8000"))
-COMPRESSION_THRESHOLD = float(os.getenv("COMPRESSION_THRESHOLD", "0.75"))
+    Environment variables are the single source of truth. This class only
+    declares required fields, types, and validation constraints.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="forbid",
+        frozen=True,
+    )
+
+    llm_base_url: HttpUrl = Field(alias="LLM_BASE_URL")
+    llm_api_key: SecretStr = Field(alias="LLM_API_KEY")
+    default_model: str = Field(alias="DEFAULT_MODEL", min_length=1)
+    fallback_model: str = Field(alias="FALLBACK_MODEL", min_length=1)
+    token_budget_limit: int = Field(alias="TOKEN_BUDGET_LIMIT", gt=0)
+    compression_threshold: float = Field(alias="COMPRESSION_THRESHOLD", ge=0.0, le=1.0)
+
+    @property
+    def model_map(self) -> dict[str, str]:
+        """Map logical model sizes to configured model names."""
+        return {"small": self.default_model, "large": self.fallback_model}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return cached validated application settings."""
+    return Settings()
+
+
+settings = get_settings()
+
+LLM_BASE_URL = str(settings.llm_base_url).rstrip("/")
+LLM_API_KEY = settings.llm_api_key.get_secret_value()
+DEFAULT_MODEL = settings.default_model
+FALLBACK_MODEL = settings.fallback_model
+TOKEN_BUDGET_LIMIT = settings.token_budget_limit
+COMPRESSION_THRESHOLD = settings.compression_threshold
+MODEL_MAP = settings.model_map

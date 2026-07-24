@@ -1,8 +1,10 @@
-"""Node: routes execution to the next node based on budget/state."""
+"""Router node stub."""
 
-from src.agent.state import AgentState
+from typing import Literal
+
+from ..state import AgentState
 
 
-def router(state: AgentState) -> str:
-    """Placeholder node. Will return the name of the next node to run."""
+def router(state: AgentState) -> Literal["llm_call", "compressor"]:
+    """Placeholder router for deciding the next graph node."""
     return "llm_call"

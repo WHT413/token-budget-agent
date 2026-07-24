@@ -1,10 +1,12 @@
-"""Shared state definition for the LangGraph agent."""
+"""Agent state definitions."""
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
-class AgentState(TypedDict):
-    """Placeholder agent state. Fields will grow as nodes are implemented."""
+class AgentState(TypedDict, total=False):
+    """Shared LangGraph state for the token budget agent."""
 
-    messages: list
+    messages: list[dict[str, Any]]
+    model_size: str
     token_count: int
+    compressed: bool

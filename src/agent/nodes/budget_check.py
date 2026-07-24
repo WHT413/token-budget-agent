@@ -1,8 +1,8 @@
-"""Node: checks current token usage against the configured budget."""
+"""Budget-check node stub."""
 
-from src.agent.state import AgentState
+from ..state import AgentState
 
 
 def budget_check(state: AgentState) -> AgentState:
-    """Placeholder node. Will inspect token usage in `state` and flag overages."""
+    """Placeholder node function for token budget checks."""
     return state

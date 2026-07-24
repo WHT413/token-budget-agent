@@ -1,8 +1,8 @@
-"""Node: invokes the LLM with the current state."""
+"""LLM-call node stub."""
 
-from src.agent.state import AgentState
+from ..state import AgentState
 
 
 def llm_call(state: AgentState) -> AgentState:
-    """Placeholder node. Will call the configured model and update `state`."""
+    """Placeholder node function for invoking the selected LLM."""
     return state
