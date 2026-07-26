@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     max_prompt_length: int = Field(alias="MAX_PROMPT_LENGTH", ge=100)
     routing_medium_length: int = Field(alias="ROUTING_MEDIUM_LENGTH", ge=50)
     routing_complex_length: int = Field(alias="ROUTING_COMPLEX_LENGTH", ge=100)
+    qdrant_url: str = Field(alias="QDRANT_URL", min_length=1)
+    qdrant_collection: str = Field(alias="QDRANT_COLLECTION", min_length=1)
+    embedding_model: str = Field(alias="EMBEDDING_MODEL", min_length=1)
+    similarity_threshold: float = Field(alias="SIMILARITY_THRESHOLD", ge=0.0, le=1.0)
+    min_samples_to_trust: int = Field(alias="MIN_SAMPLES_TO_TRUST", ge=0)
 
     @property
     def model_map(self) -> dict[str, str]:
@@ -76,3 +81,8 @@ TOKEN_BUDGET_LIMIT = settings.token_budget_limit
 COMPRESSION_THRESHOLD = settings.compression_threshold
 MODEL_MAP = settings.model_map
 ROUTING_MODELS = settings.routing_models
+QDRANT_URL = settings.qdrant_url
+QDRANT_COLLECTION = settings.qdrant_collection
+EMBEDDING_MODEL = settings.embedding_model
+SIMILARITY_THRESHOLD = settings.similarity_threshold
+MIN_SAMPLES_TO_TRUST = settings.min_samples_to_trust
