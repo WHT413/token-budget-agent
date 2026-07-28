@@ -40,7 +40,7 @@ def test_full_pipeline_saves_to_qdrant(empty_qdrant) -> None:
     if count_after_first >= MIN_SAMPLES_TO_TRUST:
         assert second_state["classification_source"] == "qdrant"
     else:
-        assert second_state["classification_source"] == "heuristic"
+        assert second_state["classification_source"] == "llm_classifier"
     assert vector_store.get_collection_count() >= 1
     assert first_state["level"] in ["simple", "medium", "complex"]
 

@@ -18,15 +18,34 @@ pytestmark = pytest.mark.e2e
 
 
 VALID_LEVELS = {"simple", "medium", "complex"}
-VALID_SOURCES = {"qdrant", "heuristic"}
+VALID_SOURCES = {"qdrant", "llm_classifier"}
 
 
-def _route_prompt(prompt: str) -> dict:
-    return route({"prompt": prompt})
+class FakeProvider:
+    """Deterministic stand-in for a real LLM, used to control the zero-shot fallback."""
+
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls: list[tuple[str, str]] = []
+
+    def generate(self, prompt: str, model_id: str) -> str:
+        self.calls.append((prompt, model_id))
+        return self.response
 
 
-def _assert_route(prompt: str, expected_level: str, expected_source: str) -> None:
-    state = _route_prompt(prompt)
+class RaisingProvider:
+    """Simulates a provider call that fails (timeout, network error, etc.)."""
+
+    def generate(self, prompt: str, model_id: str) -> str:
+        raise RuntimeError("provider unavailable")
+
+
+def _route_prompt(prompt: str, provider=None) -> dict:
+    return route({"prompt": prompt}, provider=provider)
+
+
+def _assert_route(prompt: str, expected_level: str, expected_source: str, provider=None) -> None:
+    state = _route_prompt(prompt, provider=provider)
     assert state["level"] == expected_level
     assert state["classification_source"] == expected_source
 
@@ -81,57 +100,89 @@ def seed_qdrant(initialized_qdrant):
 
 
 def test_cold_start_short_simple_prompt(empty_qdrant) -> None:
-    _assert_route("Translate this to French", "simple", "heuristic")
+    _assert_route("Translate this to French", "simple", "llm_classifier", provider=FakeProvider("simple"))
 
 
 def test_cold_start_medium_prompt(empty_qdrant) -> None:
     _assert_route(
-        "Explain the advantages and disadvantages of microservices compared to monolithic architecture "
-        * 6,
+        "Explain the advantages and disadvantages of microservices compared to monolithic architecture",
         "medium",
-        "heuristic",
+        "llm_classifier",
+        provider=FakeProvider("medium"),
     )
 
 
 def test_cold_start_long_complex_prompt(empty_qdrant) -> None:
     _assert_route(
         "Write a comprehensive step-by-step implementation plan for building a distributed event-driven "
-        "microservices system with Kafka message queues Redis caching PostgreSQL for persistence and "
-        "Kubernetes orchestration including CI/CD pipeline monitoring alerting and disaster recovery "
-        "strategy "
-        * 5,
+        "microservices system with Kafka message queues, Redis caching, PostgreSQL for persistence and "
+        "Kubernetes orchestration, including CI/CD, monitoring, alerting, and disaster recovery strategy.",
         "complex",
-        "heuristic",
+        "llm_classifier",
+        provider=FakeProvider("complex"),
     )
 
 
-@pytest.mark.xfail(reason="Known bug: heuristic ignores semantics for short complex prompts.")
 def test_cold_start_short_but_semantically_complex_prompt(empty_qdrant) -> None:
+    """Regression test: the old word-count heuristic misclassified short-but-complex
+    prompts as simple. The LLM classifier judges meaning, not length, so a short prompt
+    can still land on "complex" when the model says so."""
     _assert_route(
         "Help me make a plan to design 1 multi agent system where AI will filter the CV",
         "complex",
-        "heuristic",
+        "llm_classifier",
+        provider=FakeProvider("complex"),
     )
 
 
 def test_qdrant_routes_similar_simple_prompt(seed_qdrant) -> None:
-    _assert_route("Proofread this sentence for grammar mistakes", "simple", "qdrant")
+    _assert_route("Proofread this paragraph for spelling mistakes", "simple", "qdrant")
 
 
 def test_qdrant_routes_similar_complex_prompt(seed_qdrant) -> None:
     _assert_route("Design the system architecture for a multi-agent AI pipeline", "complex", "qdrant")
 
 
-def test_qdrant_low_similarity_falls_back_to_heuristic(seed_qdrant) -> None:
+def test_qdrant_low_similarity_falls_back_to_llm_classifier(seed_qdrant) -> None:
     random_words = [
         "".join(random.choices(string.ascii_lowercase, k=12)) for _ in range(210)
     ]
-    state = _route_prompt(" ".join(random_words))
-    assert state["classification_source"] == "heuristic"
+    state = _route_prompt(" ".join(random_words), provider=FakeProvider("simple"))
+    assert state["classification_source"] == "llm_classifier"
+    assert state["level"] == "simple"
+
+
+def test_llm_classifier_parses_messy_response(empty_qdrant) -> None:
+    state = _route_prompt("Some new prompt", provider=FakeProvider("  Complex.\n"))
+    assert state["level"] == "complex"
+    assert state["classification_source"] == "llm_classifier"
+
+    state = _route_prompt("Another new prompt", provider=FakeProvider("The answer is: medium"))
+    assert state["level"] == "medium"
+
+
+def test_llm_classifier_defaults_to_simple_on_unparseable_response(empty_qdrant) -> None:
+    state = _route_prompt("Yet another prompt", provider=FakeProvider("I cannot classify this."))
+    assert state["level"] == "simple"
+    assert state["classification_source"] == "llm_classifier"
+
+
+def test_llm_classifier_defaults_to_simple_on_provider_failure(empty_qdrant) -> None:
+    state = _route_prompt("A prompt while the provider is down", provider=RaisingProvider())
+    assert state["level"] == "simple"
+    assert state["classification_source"] == "llm_classifier"
+
+
+def test_llm_classifier_uses_economy_model(empty_qdrant) -> None:
+    provider = FakeProvider("simple")
+    _route_prompt("Translate this to French", provider=provider)
+    assert len(provider.calls) == 1
+    _, model_id = provider.calls[0]
+    assert model_id == DEFAULT_MODEL
 
 
 def test_router_returns_valid_state_fields(empty_qdrant) -> None:
-    state = _route_prompt("Translate this to French")
+    state = _route_prompt("Translate this to French", provider=FakeProvider("simple"))
 
     assert isinstance(state["embedding"], list)
     assert len(state["embedding"]) == 384
@@ -144,14 +195,12 @@ def test_router_returns_valid_state_fields(empty_qdrant) -> None:
 
 
 def test_model_map_respected(empty_qdrant) -> None:
-    state = _route_prompt(
-        "Write a comprehensive implementation strategy for distributed architecture " * 30
-    )
+    state = _route_prompt("Some prompt", provider=FakeProvider("complex"))
     assert state["level"] == "complex"
     assert state["model"] == FALLBACK_MODEL
 
 
 def test_model_map_simple_uses_default(empty_qdrant) -> None:
-    state = _route_prompt("Translate this to French")
+    state = _route_prompt("Translate this to French", provider=FakeProvider("simple"))
     assert state["level"] == "simple"
     assert state["model"] == DEFAULT_MODEL

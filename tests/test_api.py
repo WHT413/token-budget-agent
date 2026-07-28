@@ -2,12 +2,30 @@
 
 from fastapi.testclient import TestClient
 
+from src.agent import request_service
 from src.api import routes
 
 client = TestClient(routes.app)
 
 
-def test_valid_request_runs_end_to_end() -> None:
+class FakeProvider:
+    """Deterministic stand-in for a real LLM, used to control the classifier's answer."""
+
+    def __init__(self, response: str) -> None:
+        self.response = response
+
+    def generate(self, prompt: str, model_id: str) -> str:
+        return self.response
+
+
+def _force_llm_classifier(monkeypatch, level: str) -> None:
+    """Bypass Qdrant recall and real providers so the classifier deterministically picks `level`."""
+    monkeypatch.setattr(request_service, "build_provider", lambda: FakeProvider(level))
+    monkeypatch.setattr("src.services.vector_store.get_collection_count", lambda: 0)
+
+
+def test_valid_request_runs_end_to_end(monkeypatch) -> None:
+    _force_llm_classifier(monkeypatch, "simple")
     response = client.post("/api/v1/ai/requests", json={"prompt": "Translate hello."})
     body = response.json()
     assert response.status_code == 200
@@ -18,14 +36,16 @@ def test_valid_request_runs_end_to_end() -> None:
     assert body["cost"] is None
 
 
-def test_medium_request_uses_standard_profile() -> None:
+def test_medium_request_uses_standard_profile(monkeypatch) -> None:
+    _force_llm_classifier(monkeypatch, "medium")
     body = client.post(
         "/api/v1/ai/requests", json={"prompt": "Compare REST and GraphQL."}
     ).json()
     assert body["routing"]["model_profile"] == "standard"
 
 
-def test_complex_request_uses_advanced_profile() -> None:
+def test_complex_request_uses_advanced_profile(monkeypatch) -> None:
+    _force_llm_classifier(monkeypatch, "complex")
     body = client.post(
         "/api/v1/ai/requests",
         json={"prompt": "Design a secure and scalable RAG architecture with RBAC."},
