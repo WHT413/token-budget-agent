@@ -1,13 +1,10 @@
-"""Semantic router node backed by Qdrant with heuristic fallback."""
+"""Semantic router node: delegates complexity classification to the shared classifier."""
 
-from src.config import (
-    DEFAULT_MODEL,
-    FALLBACK_MODEL,
-    MIN_SAMPLES_TO_TRUST,
-    SIMILARITY_THRESHOLD,
-)
-from src.services import embedder, vector_store
+from src.config import DEFAULT_MODEL, FALLBACK_MODEL
+from src.services import embedder
 
+from ..classifier import classify
+from ..provider import LLMProvider
 from ..state import AgentState
 
 MODEL_MAP = {
@@ -17,34 +14,19 @@ MODEL_MAP = {
 }
 
 
-def _heuristic_level(token_count: int) -> str:
-    if token_count < 50:
-        return "simple"
-    if token_count <= 150:
-        return "medium"
-    return "complex"
-
-
-def route(state: AgentState) -> AgentState:
+def route(state: AgentState, provider: LLMProvider | None = None) -> AgentState:
     """Classify prompt complexity and select the model to use."""
-    token_count = len(state["prompt"].split())
-    embedding = embedder.embed(state["prompt"])
-    count = vector_store.get_collection_count()
+    prompt = state["prompt"]
+    token_count = len(prompt.split())
+    embedding = embedder.embed(prompt)
 
-    level = _heuristic_level(token_count)
-    source = "heuristic"
-
-    if count >= MIN_SAMPLES_TO_TRUST:
-        results = vector_store.search_similar(embedding, top_k=5)
-        if results and results[0]["score"] >= SIMILARITY_THRESHOLD:
-            level = results[0]["level"]
-            source = "qdrant"
+    result = classify(prompt, embedding, provider)
 
     return {
         **state,
         "embedding": embedding,
-        "level": level,
-        "classification_source": source,
-        "model": MODEL_MAP[level],
+        "level": result.level,
+        "classification_source": result.source,
+        "model": MODEL_MAP[result.level],
         "token_count": token_count,
     }

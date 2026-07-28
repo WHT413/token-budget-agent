@@ -24,15 +24,15 @@ def search_similar(embedding: list[float], top_k: int = 5) -> list[dict]:
     if not _collection_exists():
         return []
 
-    results = client.search(
+    response = client.query_points(
         collection_name=QDRANT_COLLECTION,
-        query_vector=embedding,
+        query=embedding,
         limit=top_k,
         with_payload=True,
     )
 
     normalized = []
-    for result in results:
+    for result in response.points:
         payload = result.payload or {}
         normalized.append(
             {

@@ -5,3 +5,4 @@ logs/*.json
 .python-version
 *.pyc
 .DS_Store
+*.pptx
